@@ -1,0 +1,59 @@
+name: SOCKS5 P
+
+on:
+  workflow_dispatch:
+
+jobs:
+  starter:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install required packages
+        run: |
+          sudo apt update
+          sudo apt install -y dante-server openssh-client iptables
+
+      - name: Enable forwarding
+        run: |
+          sudo sysctl -w net.ipv4.ip_forward=1
+          echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+
+      - name: Configure firewall
+        run: |
+          sudo iptables -A INPUT -p tcp --dport 1080 -j ACCEPT || true
+          sudo iptables -L
+
+      - name: Create user
+        run: |
+          sudo useradd -m proxyadmin || true
+          echo 'proxyadmin:P@ssw0rd!123' | sudo chpasswd
+
+
+      - name: Start Socks
+        run: |
+          echo "Setting up Dante SOCKS5 server with auth"
+          cat <<EOF | sudo tee /etc/danted.conf
+          logoutput: /dev/stdout
+          internal: 0.0.0.0 port = 1080
+          external: eth0
+          socksmethod: username
+          user.notprivileged: nobody
+
+          client pass {
+            from: 0.0.0.0/0 to: 0.0.0.0/0
+            log: connect disconnect error
+          }
+
+          socks pass {
+            from: 0.0.0.0/0 to: 0.0.0.0/0
+            protocol: tcp udp
+          }
+          EOF
+
+          sudo pkill danted || true
+          sudo danted -f /etc/danted.conf &
+
+      - name: Start Tunnel
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -R 0:127.0.0.1:1080 serveo.net

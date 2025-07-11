@@ -1,0 +1,42 @@
+name: HTTP via Serveo
+
+on: workflow_dispatch
+
+jobs:
+  http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  
+
+    steps:
+      - name: Enable IP Forwarding & Firewall
+        run: |
+          echo "Enabling IP forwarding..."
+          sudo sysctl -w net.ipv4.ip_forward=1
+          echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+
+          echo "Setting firewall rules..."
+          sudo iptables -A INPUT -p tcp --dport 8888 -j ACCEPT
+          sudo iptables -A FORWARD -i eth0 -j ACCEPT
+          sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+      - name: Install Dependencies
+        run: |
+          echo "Installing Tinyproxy..."
+          sudo apt update
+          sudo apt install tinyproxy -y
+
+          echo "Configuring Tinyproxy..."
+          sudo sed -i 's/^Port .*/Port 8888/' /etc/tinyproxy/tinyproxy.conf
+          sudo sed -i 's/^#Allow 127.0.0.1/Allow 0.0.0.0\/0/' /etc/tinyproxy/tinyproxy.conf
+          sudo sed -i 's/^Listen .*/Listen 127.0.0.1/' /etc/tinyproxy/tinyproxy.conf
+
+          sudo systemctl restart tinyproxy
+          echo "Tinyproxy HTTP proxy running on 127.0.0.1:8888"
+
+      - name: Start Tunnel
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=3 \
+              -R 0:127.0.0.1:8888 serveo.net
